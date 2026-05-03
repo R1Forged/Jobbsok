@@ -97,8 +97,10 @@ Create narrow searches on FINN and copy the result URLs. Good starting points:
 Put them in `FINN_SEARCH_URLS` as a comma-separated list:
 
 ```env
-FINN_SEARCH_URLS=https://www.finn.no/job/search?q=supply%20chain,https://www.finn.no/job/search?q=planning%20manager
+FINN_SEARCH_URLS=https://www.finn.no/job/search?location=1.20001.20061&occupation=1.31.226,https://www.finn.no/job/search?location=1.20001.20061&q=supply%20chain,https://www.finn.no/job/search?location=1.20001.20061&q=operational%20excellence,https://www.finn.no/job/search?location=1.20001.20061&q=planning,https://www.finn.no/job/search?location=1.20001.20061&q=logistikk,https://www.finn.no/job/search?q=supply%20chain%20manager,https://www.finn.no/job/search?q=head%20of%20supply%20chain,https://www.finn.no/job/search?q=director%20supply%20chain,https://www.finn.no/job/search?q=operational%20excellence,https://www.finn.no/job/search?q=S%26OP
 ```
+
+This search strategy combines targeted Oslo/Akershus/Viken searches with broader senior supply-chain searches. Encoded query characters such as `%20` and `%26` are safe because the app splits only on commas.
 
 The agent adds only a `page` query parameter for pages 2-3 and does not attempt login, CAPTCHA solving, or other bypass behavior.
 

@@ -53,6 +53,7 @@ def run() -> int:
 
     processed = 0
     alerted = 0
+    hard_filtered = 0
     for listing in new_listings[: settings.max_detail_fetches_per_run]:
         try:
             detailed = finn.fetch_detail(listing)
@@ -61,6 +62,7 @@ def run() -> int:
 
             filter_result = hard_filter(detailed)
             if not filter_result.include:
+                hard_filtered += 1
                 LOGGER.info("Skipping %s: %s", detailed.url, filter_result.reason)
                 continue
 
@@ -84,7 +86,7 @@ def run() -> int:
             LOGGER.exception("Failed processing listing %s", listing.url)
             continue
 
-    LOGGER.info("Run complete. scored=%s alerted=%s", processed, alerted)
+    LOGGER.info("Run complete. hard_filtered=%s scored=%s alerted=%s", hard_filtered, processed, alerted)
     return 0
 
 
