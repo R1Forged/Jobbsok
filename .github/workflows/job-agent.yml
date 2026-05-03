@@ -57,7 +57,7 @@ jobs:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_FOLDER: ${{ vars.EMAIL_FOLDER || 'INBOX' }}
           EMAIL_FROM_FILTER: ${{ vars.EMAIL_FROM_FILTER || 'jobs-noreply@linkedin.com' }}
-          EMAIL_SUBJECT_FILTER: ${{ vars.EMAIL_SUBJECT_FILTER || 'job' }}
+          EMAIL_SUBJECT_FILTER: ${{ vars.EMAIL_SUBJECT_FILTER || '' }}
           EMAIL_LOOKBACK_DAYS: ${{ vars.EMAIL_LOOKBACK_DAYS || '7' }}
           MAX_EMAILS_PER_RUN: ${{ vars.MAX_EMAILS_PER_RUN || '20' }}
           LOG_LEVEL: INFO

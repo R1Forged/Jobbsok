@@ -117,6 +117,8 @@ For Gmail:
 
 The email reader opens the mailbox read-only, fetches messages with `BODY.PEEK[]`, and does not mark emails as read, delete them, or move them. Parsed LinkedIn jobs use `source=linkedin_email` and dedupe on the canonical LinkedIn job URL.
 
+If LinkedIn alerts are forwarded from Outlook/Hotmail into Gmail, set `EMAIL_FROM_FILTER` to the forwarding address and leave `EMAIL_SUBJECT_FILTER` empty. Forwarded subjects may look like `Vs:` or `Fwd:` and do not always contain the word `job`.
+
 ## Telegram Setup
 
 1. Open Telegram and message `@BotFather`.
