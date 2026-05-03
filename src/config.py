@@ -5,7 +5,6 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 from dotenv import load_dotenv
 
@@ -67,6 +66,16 @@ class Settings:
     finn_max_pages_per_search: int = 3
     http_timeout_seconds: int = 20
     log_level: str = "INFO"
+    enable_email_ingestion: bool = False
+    email_host: str = ""
+    email_port: int = 993
+    email_username: str = ""
+    email_password: str = ""
+    email_folder: str = "INBOX"
+    email_from_filter: str = "jobs-noreply@linkedin.com"
+    email_subject_filter: str = "job"
+    email_lookback_days: int = 7
+    max_emails_per_run: int = 20
 
     def validate_for_run(self) -> None:
         missing: list[str] = []
@@ -86,6 +95,10 @@ class Settings:
                 "TELEGRAM_CHAT_ID must be the numeric chat id from Telegram getUpdates, "
                 "not a t.me link, bot username, or @handle. Run: python scripts/telegram_setup.py"
             )
+
+    @property
+    def email_configured(self) -> bool:
+        return bool(self.email_host and self.email_username and self.email_password)
 
 
 def load_settings(env_file: str | Path | None = ".env") -> Settings:
@@ -107,6 +120,16 @@ def load_settings(env_file: str | Path | None = ".env") -> Settings:
         finn_max_pages_per_search=_int_env("FINN_MAX_PAGES_PER_SEARCH", 3, minimum=1, maximum=3),
         http_timeout_seconds=_int_env("HTTP_TIMEOUT_SECONDS", 20, minimum=5),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        enable_email_ingestion=_truthy(os.getenv("ENABLE_EMAIL_INGESTION"), default=False),
+        email_host=os.getenv("EMAIL_HOST", "").strip(),
+        email_port=_int_env("EMAIL_PORT", 993, minimum=1),
+        email_username=os.getenv("EMAIL_USERNAME", "").strip(),
+        email_password=os.getenv("EMAIL_PASSWORD", "").strip(),
+        email_folder=os.getenv("EMAIL_FOLDER", "INBOX").strip() or "INBOX",
+        email_from_filter=os.getenv("EMAIL_FROM_FILTER", "jobs-noreply@linkedin.com").strip(),
+        email_subject_filter=os.getenv("EMAIL_SUBJECT_FILTER", "job").strip(),
+        email_lookback_days=_int_env("EMAIL_LOOKBACK_DAYS", 7, minimum=1),
+        max_emails_per_run=_int_env("MAX_EMAILS_PER_RUN", 20, minimum=0),
     )
 
 

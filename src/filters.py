@@ -12,9 +12,14 @@ INCLUDE_PATTERNS = [
     r"\bplanning\b",
     r"\bS&OP\b",
     r"\bS\s*&\s*OE\b",
+    r"\bIBP\b",
     r"\boperations?\b",
     r"\boperational excellence\b",
+    r"\bcontinuous improvement\b",
     r"\btransformation\b",
+    r"\bautomation\b",
+    r"\bautomasjon\b",
+    r"\bdigitalisering\b",
     r"\bdirector\b",
     r"\bhead of\b",
     r"\bmanager\b",
@@ -26,6 +31,8 @@ INCLUDE_PATTERNS = [
     r"\bvareflyt\b",
     r"\bdemand planning\b",
     r"\bSAP\b",
+    r"\bS/4\b",
+    r"\bS4\b",
     r"\bRelex\b",
 ]
 

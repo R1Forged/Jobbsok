@@ -1,16 +1,17 @@
-# Personal FINN Job Search Agent
+# Personal Job Search Agent
 
-Private Python job-search monitor for Simen Eriksen Fricker. It checks saved FINN job searches twice per day with conservative request limits, scores new listings with OpenAI, and sends only high-quality matches to Telegram.
+Private Python job-search monitor for Simen Eriksen Fricker. It checks saved FINN job searches and optional LinkedIn Job Alert emails, scores new listings with OpenAI, and sends only high-quality matches to Telegram.
 
-This is intended as a personal monitor. Do not use it to bypass login, CAPTCHA, anti-bot systems, or FINN access controls. Keep the search set narrow, the page count low, and the request delay respectful.
+LinkedIn is not scraped directly. LinkedIn jobs are ingested only from Job Alert emails in your mailbox.
 
 ## What It Does
 
 - Fetches the first 1-3 pages from saved FINN job-search URLs.
+- Optionally reads LinkedIn Job Alert emails over IMAP without marking them as read.
 - Stores seen jobs in SQLite to avoid duplicate processing and alerts.
-- Fetches detail pages only for new listings, capped per run.
+- Fetches FINN detail pages only for new FINN listings.
 - Applies a hard keyword filter before AI scoring.
-- Scores jobs against Simen's supply chain, logistics, planning, operational excellence, and AI/automation profile.
+- Scores jobs as a headhunter would: whether the role is a real career step for Simen.
 - Sends Telegram alerts only when `score >= MIN_SCORE`.
 - Runs locally or on GitHub Actions twice daily.
 
@@ -23,9 +24,12 @@ This is intended as a personal monitor. Do not use it to bypass login, CAPTCHA, 
 ├── .env.example
 ├── .github/workflows/job-agent.yml
 ├── data/.gitkeep
+├── scripts/telegram_setup.py
 └── src
     ├── main.py
     ├── fetch_finn.py
+    ├── fetch_email.py
+    ├── parse_linkedin_email.py
     ├── parser.py
     ├── filters.py
     ├── scoring.py
@@ -43,11 +47,6 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
-```
-
-Edit `.env` with your real values, then run:
-
-```bash
 python -m src.main
 ```
 
@@ -57,44 +56,43 @@ For a no-alert test:
 DRY_RUN=true python -m src.main
 ```
 
-On PowerShell:
-
-```powershell
-$env:DRY_RUN="true"
-python -m src.main
-```
-
 ## Environment Variables
 
 Required:
 
 - `OPENAI_API_KEY`: OpenAI API key used for job scoring.
 - `TELEGRAM_BOT_TOKEN`: Telegram bot token from BotFather.
-- `TELEGRAM_CHAT_ID`: Chat ID to receive alerts.
+- `TELEGRAM_CHAT_ID`: Numeric chat ID to receive alerts.
 - `FINN_SEARCH_URLS`: Comma-separated FINN search URLs.
 
 Optional:
 
 - `MIN_SCORE`: Alert threshold. Default: `75`.
 - `REQUEST_DELAY_SECONDS`: Delay between FINN requests. Default: `3`.
-- `MAX_DETAIL_FETCHES_PER_RUN`: Max detail pages fetched per run. Default: `20`.
-- `MAX_NEW_JOBS_PER_RUN`: Max new jobs considered per run. Default: `20`.
+- `MAX_DETAIL_FETCHES_PER_RUN`: Max new jobs processed per run. Default: `20`.
+- `MAX_NEW_JOBS_PER_RUN`: Max new jobs collected per run. Default: `20`.
 - `DRY_RUN`: `true` logs Telegram messages instead of sending. Default: `false`.
 - `DB_PATH`: SQLite path. Default: `data/jobs.sqlite`.
 - `OPENAI_MODEL`: Scoring model. Default: `gpt-4.1-mini`.
 - `FINN_MAX_PAGES_PER_SEARCH`: First pages to fetch per search, max `3`. Default: `3`.
 - `LOG_LEVEL`: Default: `INFO`.
 
+Optional LinkedIn email ingestion:
+
+- `ENABLE_EMAIL_INGESTION`: `true` to read LinkedIn Job Alert emails. Default: `false`.
+- `EMAIL_HOST`: IMAP host, for example `imap.gmail.com`.
+- `EMAIL_PORT`: IMAP SSL port. Default: `993`.
+- `EMAIL_USERNAME`: Mailbox username. Store as a GitHub secret.
+- `EMAIL_PASSWORD`: Mailbox password or app password. Store as a GitHub secret.
+- `EMAIL_FOLDER`: Mailbox folder. Default: `INBOX`.
+- `EMAIL_FROM_FILTER`: Sender filter. Default: `jobs-noreply@linkedin.com`.
+- `EMAIL_SUBJECT_FILTER`: Subject filter. Default: `job`.
+- `EMAIL_LOOKBACK_DAYS`: Look back this many days. Default: `7`.
+- `MAX_EMAILS_PER_RUN`: Max emails scanned per run. Default: `20`.
+
 ## FINN Search URLs
 
-Create narrow searches on FINN and copy the result URLs. Good starting points:
-
-- Supply chain / planning roles around Oslo and Akershus.
-- Logistics manager and operational excellence roles.
-- Director, head of, and senior manager searches.
-- Remote Norway or hybrid filters if relevant.
-
-Put them in `FINN_SEARCH_URLS` as a comma-separated list:
+Put saved FINN searches in `FINN_SEARCH_URLS` as a comma-separated list:
 
 ```env
 FINN_SEARCH_URLS=https://www.finn.no/job/search?location=1.20001.20061&occupation=1.31.226,https://www.finn.no/job/search?location=1.20001.20061&q=supply%20chain,https://www.finn.no/job/search?location=1.20001.20061&q=operational%20excellence,https://www.finn.no/job/search?location=1.20001.20061&q=planning,https://www.finn.no/job/search?location=1.20001.20061&q=logistikk,https://www.finn.no/job/search?q=supply%20chain%20manager,https://www.finn.no/job/search?q=head%20of%20supply%20chain,https://www.finn.no/job/search?q=director%20supply%20chain,https://www.finn.no/job/search?q=operational%20excellence,https://www.finn.no/job/search?q=S%26OP
@@ -104,40 +102,48 @@ This search strategy combines targeted Oslo/Akershus/Viken searches with broader
 
 The agent adds only a `page` query parameter for pages 2-3 and does not attempt login, CAPTCHA solving, or other bypass behavior.
 
+## LinkedIn Job Alerts Via Email
+
+Create LinkedIn Job Alerts in LinkedIn and let the alert emails arrive in a mailbox the agent can read over IMAP. The agent parses job cards/links from email HTML or plaintext and normalizes them into the same pipeline as FINN:
+
+`fetch -> parse -> dedup -> hardfilter -> AI-score -> Telegram`
+
+For Gmail:
+
+1. Enable 2-step verification on the Google account.
+2. Create a Gmail app password.
+3. Use `imap.gmail.com`, port `993`, your email address as `EMAIL_USERNAME`, and the app password as `EMAIL_PASSWORD`.
+4. Use `EMAIL_FROM_FILTER=linkedin` if LinkedIn uses multiple sender addresses.
+
+The email reader opens the mailbox read-only, fetches messages with `BODY.PEEK[]`, and does not mark emails as read, delete them, or move them. Parsed LinkedIn jobs use `source=linkedin_email` and dedupe on the canonical LinkedIn job URL.
+
 ## Telegram Setup
 
 1. Open Telegram and message `@BotFather`.
 2. Run `/newbot`, choose a name and username, and copy the bot token.
 3. Start a chat with your new bot and send any message.
 4. Put the token in `.env` as `TELEGRAM_BOT_TOKEN`.
-5. Run the helper:
+5. Run:
 
 ```bash
 python scripts/telegram_setup.py --write-env
 ```
 
-It validates the token, lists available numeric chat ids, and writes `TELEGRAM_CHAT_ID` automatically when exactly one chat is found.
-
-Manual fallback: visit this URL in a browser, replacing the token:
-
-```text
-https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getUpdates
-```
-
-Find `chat.id` in the JSON response. Use that numeric value as `TELEGRAM_CHAT_ID`.
-
-`TELEGRAM_CHAT_ID` is not the bot username, not a `t.me` URL, and not an `@handle`.
-
-If you want alerts in a group, add the bot to the group, send a message in the group, and call `getUpdates` again. Group chat IDs are often negative numbers.
+`TELEGRAM_CHAT_ID` must be the numeric chat id, not a `t.me` URL or `@handle`.
 
 ## GitHub Actions Setup
 
-Create a private GitHub repo and push this project. Then add repository secrets:
+Required repository secrets:
 
 - `OPENAI_API_KEY`
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 - `FINN_SEARCH_URLS`
+
+Additional secrets if email ingestion is enabled:
+
+- `EMAIL_USERNAME`
+- `EMAIL_PASSWORD`
 
 Optional repository variables:
 
@@ -148,10 +154,16 @@ Optional repository variables:
 - `DRY_RUN`
 - `OPENAI_MODEL`
 - `FINN_MAX_PAGES_PER_SEARCH`
+- `ENABLE_EMAIL_INGESTION`
+- `EMAIL_HOST`
+- `EMAIL_PORT`
+- `EMAIL_FOLDER`
+- `EMAIL_FROM_FILTER`
+- `EMAIL_SUBJECT_FILTER`
+- `EMAIL_LOOKBACK_DAYS`
+- `MAX_EMAILS_PER_RUN`
 
-The workflow runs at `06:15` and `18:15` UTC and can also be started manually from the Actions tab. GitHub schedules are in UTC, so adjust `.github/workflows/job-agent.yml` if you want different local times.
-
-The SQLite database is cached between workflow runs using `actions/cache`. This prevents repeated alerts for already-seen listings without committing the database to git.
+The workflow runs at `06:15` and `18:15` UTC and can also be started manually from the Actions tab. The SQLite database is cached between workflow runs using `actions/cache`.
 
 When `DRY_RUN=true`, the agent uses a separate `*.dry-run.sqlite` database so test runs do not consume jobs from the real alert database.
 
@@ -163,29 +175,35 @@ The AI returns strict JSON:
 {
   "score": 0,
   "recommendation": "SØK",
+  "career_move_type": "STEP_UP",
+  "headhunter_verdict": "",
   "why_relevant": "",
   "red_flags": "",
+  "mandate_assessment": "",
   "level_assessment": "",
   "salary_potential": "",
-  "application_angle": ""
+  "application_angle": "",
+  "confidence": "HIGH"
 }
 ```
 
 Scoring weights:
 
-- 30% profile match in logistics, supply chain, and planning.
-- 20% leadership and seniority.
-- 15% operational excellence or transformation.
-- 15% salary and career upside.
+- 20% role step-up from Logistics Manager.
+- 20% mandate and influence.
+- 15% profile match in supply chain, logistics, planning, S&OP, SAP/Relex, export, and manufacturing/FMCG.
+- 15% transformation, operational excellence, and AI potential.
+- 15% compensation and career upside.
 - 10% industry relevance.
-- 10% geography fit.
+- 5% geography and hybrid fit.
 
-Adjust alert selectivity by changing `MIN_SCORE`. A useful operating range is `75-85`.
+The scorer penalizes low-upside lateral moves, pure operational firefighting, coordinator/specialist roles without strategic scope, and roles likely below current compensation. It rewards Director/Head/Senior Manager scope, S&OP/IBP, planning excellence, transformation, automation, SAP/S4, and supply chain strategy.
 
 ## Reliability Notes
 
 - HTTP requests use retries for transient errors.
-- FINN detail pages are fetched only for new listings.
+- FINN detail pages are fetched only for new FINN listings.
+- LinkedIn email jobs come from email content only; no LinkedIn pages are fetched.
 - The run continues on partial failures.
 - Telegram sends are skipped in `DRY_RUN=true`.
-- All major steps log progress for GitHub Actions diagnostics.
+- Logs include FINN jobs fetched, LinkedIn emails scanned, LinkedIn jobs parsed, new jobs after dedup, hardfilter counts, scored jobs, and Telegram alerts.

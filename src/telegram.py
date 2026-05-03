@@ -15,10 +15,18 @@ def build_message(listing: JobListing, score: ScoreResult) -> str:
     return f"""🚀 Jobbmatch: {score.score}/100 – {listing.title}
 Selskap: {listing.company or "Ukjent"}
 Sted: {listing.location or "Ikke oppgitt"}
+Kilde: {listing.source}
 Anbefaling: {score.recommendation}
+Karrieretype: {score.career_move_type}
+
+Headhunter-vurdering:
+{score.headhunter_verdict or "Ikke oppgitt"}
 
 Hvorfor relevant:
 {score.why_relevant or "Ikke oppgitt"}
+
+Mandat:
+{score.mandate_assessment or "Ikke oppgitt"}
 
 Røde flagg:
 {score.red_flags or "Ingen tydelige røde flagg oppgitt"}

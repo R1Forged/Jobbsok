@@ -50,6 +50,16 @@ jobs:
           DB_PATH: data/jobs.sqlite
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4.1-mini' }}
           FINN_MAX_PAGES_PER_SEARCH: ${{ vars.FINN_MAX_PAGES_PER_SEARCH || '3' }}
+          ENABLE_EMAIL_INGESTION: ${{ vars.ENABLE_EMAIL_INGESTION || 'false' }}
+          EMAIL_HOST: ${{ vars.EMAIL_HOST || '' }}
+          EMAIL_PORT: ${{ vars.EMAIL_PORT || '993' }}
+          EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_FOLDER: ${{ vars.EMAIL_FOLDER || 'INBOX' }}
+          EMAIL_FROM_FILTER: ${{ vars.EMAIL_FROM_FILTER || 'jobs-noreply@linkedin.com' }}
+          EMAIL_SUBJECT_FILTER: ${{ vars.EMAIL_SUBJECT_FILTER || 'job' }}
+          EMAIL_LOOKBACK_DAYS: ${{ vars.EMAIL_LOOKBACK_DAYS || '7' }}
+          MAX_EMAILS_PER_RUN: ${{ vars.MAX_EMAILS_PER_RUN || '20' }}
           LOG_LEVEL: INFO
         run: python -m src.main
 
