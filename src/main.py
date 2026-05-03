@@ -127,6 +127,32 @@ def _collect_new_listings(settings, finn: FinnClient, store: JobStore) -> Collec
 
     seen_this_run: set[tuple[str, str]] = set()
 
+    if settings.enable_email_ingestion:
+        if not settings.email_configured:
+            LOGGER.warning("Email ingestion enabled but email settings are incomplete; skipping email source")
+        else:
+            try:
+                email_result = EmailClient(
+                    host=settings.email_host,
+                    port=settings.email_port,
+                    username=settings.email_username,
+                    password=settings.email_password,
+                    folder=settings.email_folder,
+                    from_filter=settings.email_from_filter,
+                    subject_filter=settings.email_subject_filter,
+                    lookback_days=settings.email_lookback_days,
+                    max_emails_per_run=settings.max_emails_per_run,
+                ).fetch_linkedin_jobs()
+                stats.linkedin_emails_scanned = email_result.emails_scanned
+                stats.linkedin_jobs_parsed = len(email_result.jobs)
+                _add_new_listings(email_result.jobs, store, seen_this_run, stats, settings.max_new_jobs_per_run)
+            except EmailIngestionNotConfigured as exc:
+                LOGGER.warning("%s", exc)
+            except Exception:
+                LOGGER.exception("Unexpected email ingestion failure")
+    else:
+        LOGGER.info("Email ingestion disabled")
+
     for search_url in settings.finn_search_urls:
         try:
             listings = finn.fetch_search_results(search_url, settings.finn_max_pages_per_search)
@@ -136,32 +162,6 @@ def _collect_new_listings(settings, finn: FinnClient, store: JobStore) -> Collec
             continue
 
         _add_new_listings(listings, store, seen_this_run, stats, settings.max_new_jobs_per_run)
-
-    if settings.enable_email_ingestion:
-        if not settings.email_configured:
-            LOGGER.warning("Email ingestion enabled but email settings are incomplete; skipping email source")
-            return stats
-        try:
-            email_result = EmailClient(
-                host=settings.email_host,
-                port=settings.email_port,
-                username=settings.email_username,
-                password=settings.email_password,
-                folder=settings.email_folder,
-                from_filter=settings.email_from_filter,
-                subject_filter=settings.email_subject_filter,
-                lookback_days=settings.email_lookback_days,
-                max_emails_per_run=settings.max_emails_per_run,
-            ).fetch_linkedin_jobs()
-            stats.linkedin_emails_scanned = email_result.emails_scanned
-            stats.linkedin_jobs_parsed = len(email_result.jobs)
-            _add_new_listings(email_result.jobs, store, seen_this_run, stats, settings.max_new_jobs_per_run)
-        except EmailIngestionNotConfigured as exc:
-            LOGGER.warning("%s", exc)
-        except Exception:
-            LOGGER.exception("Unexpected email ingestion failure")
-    else:
-        LOGGER.info("Email ingestion disabled")
 
     return stats
 
