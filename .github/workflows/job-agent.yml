@@ -1,0 +1,61 @@
+name: Personal Job Search Agent
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub cron is UTC. This runs twice daily.
+    - cron: "15 6,18 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  run-job-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Restore SQLite cache
+        id: cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: job-agent-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            job-agent-db-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Run job agent
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FINN_SEARCH_URLS: ${{ secrets.FINN_SEARCH_URLS }}
+          MIN_SCORE: ${{ vars.MIN_SCORE || '75' }}
+          REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || '3' }}
+          MAX_DETAIL_FETCHES_PER_RUN: ${{ vars.MAX_DETAIL_FETCHES_PER_RUN || '20' }}
+          MAX_NEW_JOBS_PER_RUN: ${{ vars.MAX_NEW_JOBS_PER_RUN || '20' }}
+          DRY_RUN: ${{ vars.DRY_RUN || 'false' }}
+          DB_PATH: data/jobs.sqlite
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4.1-mini' }}
+          FINN_MAX_PAGES_PER_SEARCH: ${{ vars.FINN_MAX_PAGES_PER_SEARCH || '3' }}
+          LOG_LEVEL: INFO
+        run: python -m src.main
+
+      - name: Save SQLite cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: job-agent-db-${{ runner.os }}-${{ github.run_id }}
