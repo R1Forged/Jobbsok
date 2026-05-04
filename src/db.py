@@ -63,6 +63,19 @@ class JobStore:
             ).fetchone()
             return row is not None
 
+    def needs_processing(self, source: str, job_id: str) -> bool:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT score, recommendation
+                FROM jobs
+                WHERE source = ? AND job_id = ?
+                LIMIT 1
+                """,
+                (source, job_id),
+            ).fetchone()
+            return row is not None and row["score"] is None and row["recommendation"] is None
+
     def upsert_seen(self, listing: JobListing) -> bool:
         """Insert a listing if new, otherwise refresh last_seen. Returns True when inserted."""
         now = utc_now_iso()

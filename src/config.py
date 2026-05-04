@@ -64,6 +64,9 @@ class Settings:
     db_path: Path = Path("data/jobs.sqlite")
     openai_model: str = "gpt-4.1-mini"
     finn_max_pages_per_search: int = 3
+    initial_backfill: bool = False
+    backfill_max_pages: int = 5
+    backfill_max_detail_fetches: int = 100
     http_timeout_seconds: int = 20
     log_level: str = "INFO"
     enable_email_ingestion: bool = False
@@ -100,6 +103,18 @@ class Settings:
     def email_configured(self) -> bool:
         return bool(self.email_host and self.email_username and self.email_password)
 
+    @property
+    def finn_pages_this_run(self) -> int:
+        return self.backfill_max_pages if self.initial_backfill else self.finn_max_pages_per_search
+
+    @property
+    def max_new_jobs_this_run(self) -> int:
+        return self.backfill_max_detail_fetches if self.initial_backfill else self.max_new_jobs_per_run
+
+    @property
+    def max_detail_fetches_this_run(self) -> int:
+        return self.backfill_max_detail_fetches if self.initial_backfill else self.max_detail_fetches_per_run
+
 
 def load_settings(env_file: str | Path | None = ".env") -> Settings:
     if env_file:
@@ -118,6 +133,9 @@ def load_settings(env_file: str | Path | None = ".env") -> Settings:
         db_path=Path(os.getenv("DB_PATH", "data/jobs.sqlite")),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini",
         finn_max_pages_per_search=_int_env("FINN_MAX_PAGES_PER_SEARCH", 3, minimum=1, maximum=3),
+        initial_backfill=_truthy(os.getenv("INITIAL_BACKFILL"), default=False),
+        backfill_max_pages=_int_env("BACKFILL_MAX_PAGES", 5, minimum=1, maximum=10),
+        backfill_max_detail_fetches=_int_env("BACKFILL_MAX_DETAIL_FETCHES", 100, minimum=0),
         http_timeout_seconds=_int_env("HTTP_TIMEOUT_SECONDS", 20, minimum=5),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         enable_email_ingestion=_truthy(os.getenv("ENABLE_EMAIL_INGESTION"), default=False),

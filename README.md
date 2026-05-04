@@ -71,6 +71,9 @@ Optional:
 - `REQUEST_DELAY_SECONDS`: Delay between FINN requests. Default: `3`.
 - `MAX_DETAIL_FETCHES_PER_RUN`: Max new jobs processed per run. Default: `20`.
 - `MAX_NEW_JOBS_PER_RUN`: Max new jobs collected per run. Default: `20`.
+- `INITIAL_BACKFILL`: `true` to scan existing listings across deeper FINN result pages. Default: `false`.
+- `BACKFILL_MAX_PAGES`: Pages per FINN search in backfill mode. Default: `5`.
+- `BACKFILL_MAX_DETAIL_FETCHES`: Max listings processed in backfill mode. Default: `100`.
 - `DRY_RUN`: `true` logs Telegram messages instead of sending. Default: `false`.
 - `DB_PATH`: SQLite path. Default: `data/jobs.sqlite`.
 - `OPENAI_MODEL`: Scoring model. Default: `gpt-4.1-mini`.
@@ -95,12 +98,32 @@ Optional LinkedIn email ingestion:
 Put saved FINN searches in `FINN_SEARCH_URLS` as a comma-separated list:
 
 ```env
-FINN_SEARCH_URLS=https://www.finn.no/job/search?location=1.20001.20061&occupation=1.31.226,https://www.finn.no/job/search?location=1.20001.20061&q=supply%20chain,https://www.finn.no/job/search?location=1.20001.20061&q=operational%20excellence,https://www.finn.no/job/search?location=1.20001.20061&q=planning,https://www.finn.no/job/search?location=1.20001.20061&q=logistikk,https://www.finn.no/job/search?q=supply%20chain%20manager,https://www.finn.no/job/search?q=head%20of%20supply%20chain,https://www.finn.no/job/search?q=director%20supply%20chain,https://www.finn.no/job/search?q=operational%20excellence,https://www.finn.no/job/search?q=S%26OP
+FINN_SEARCH_URLS=https://www.finn.no/job/search?location=1.20001.20061&occupation=1.31.226,https://www.finn.no/job/search?location=1.20001.20061&q=supply%20chain%20manager,https://www.finn.no/job/search?location=1.20001.20061&q=head%20of%20supply%20chain,https://www.finn.no/job/search?location=1.20001.20061&q=logistikksjef,https://www.finn.no/job/search?location=1.20001.20061&q=planning%20manager,https://www.finn.no/job/search?location=1.20001.20061&q=demand%20planning,https://www.finn.no/job/search?q=S%26OP,https://www.finn.no/job/search?q=operational%20excellence,https://www.finn.no/job/search?q=transformation%20manager,https://www.finn.no/job/search?q=SAP%20Relex%20IBP,https://www.finn.no/job/search?q=automation%20process%20improvement%20operations,https://www.finn.no/job/search?q=produksjonsplanlegging
 ```
 
-This search strategy combines targeted Oslo/Akershus/Viken searches with broader senior supply-chain searches. Encoded query characters such as `%20` and `%26` are safe because the app splits only on commas.
+This search strategy combines targeted Oslo/Akershus/Viken category and keyword searches with broader senior searches for supply chain, planning, S&OP, operational excellence, transformation, SAP/Relex/IBP, automation, and production planning. Encoded query characters such as `%20` and `%26` are safe because the app splits only on commas.
 
 The agent adds only a `page` query parameter for pages 2-3 and does not attempt login, CAPTCHA solving, or other bypass behavior.
+
+## Initial Backfill
+
+Use backfill once when you want the bot to scan existing FINN listings, not only new listings.
+
+Local dry-run example:
+
+```bash
+INITIAL_BACKFILL=true BACKFILL_MAX_PAGES=5 BACKFILL_MAX_DETAIL_FETCHES=100 DRY_RUN=true python -m src.main
+```
+
+For a real backfill, set `DRY_RUN=false`. After the first backfill run, set `INITIAL_BACKFILL=false` again so scheduled runs return to lightweight monitoring.
+
+Backfill still stays conservative:
+
+- It uses the same saved FINN URLs.
+- It never bypasses login, CAPTCHA, or anti-bot systems.
+- It only traverses up to `BACKFILL_MAX_PAGES` per search.
+- It fetches detail pages only for jobs that are unseen or not yet processed.
+- It caps processing at `BACKFILL_MAX_DETAIL_FETCHES`.
 
 ## LinkedIn Job Alerts Via Email
 
@@ -153,6 +176,9 @@ Optional repository variables:
 - `REQUEST_DELAY_SECONDS`
 - `MAX_DETAIL_FETCHES_PER_RUN`
 - `MAX_NEW_JOBS_PER_RUN`
+- `INITIAL_BACKFILL`
+- `BACKFILL_MAX_PAGES`
+- `BACKFILL_MAX_DETAIL_FETCHES`
 - `DRY_RUN`
 - `OPENAI_MODEL`
 - `FINN_MAX_PAGES_PER_SEARCH`

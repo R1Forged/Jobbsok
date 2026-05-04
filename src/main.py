@@ -50,10 +50,12 @@ def run() -> int:
     )
 
     LOGGER.info(
-        "Starting job agent. searches=%s max_new=%s max_details=%s min_score=%s dry_run=%s",
+        "Starting job agent. mode=%s searches=%s pages_per_search=%s max_new=%s max_details=%s min_score=%s dry_run=%s",
+        "initial_backfill" if settings.initial_backfill else "normal",
         len(settings.finn_search_urls),
-        settings.max_new_jobs_per_run,
-        settings.max_detail_fetches_per_run,
+        settings.finn_pages_this_run,
+        settings.max_new_jobs_this_run,
+        settings.max_detail_fetches_this_run,
         settings.min_score,
         settings.dry_run,
     )
@@ -73,7 +75,7 @@ def run() -> int:
     alerted = 0
     hard_filtered = 0
     passed_hard_filter = 0
-    for listing in new_listings[: settings.max_detail_fetches_per_run]:
+    for listing in new_listings[: settings.max_detail_fetches_this_run]:
         try:
             if listing.source == "finn":
                 detailed = finn.fetch_detail(listing)
@@ -85,6 +87,7 @@ def run() -> int:
             filter_result = hard_filter(detailed)
             if not filter_result.include:
                 hard_filtered += 1
+                store.save_score(detailed.source, detailed.job_id, 0, "DROPP")
                 LOGGER.info("Skipping %s: %s", detailed.url, filter_result.reason)
                 continue
             passed_hard_filter += 1
@@ -121,8 +124,9 @@ def run() -> int:
 
 def _collect_new_listings(settings, finn: FinnClient, store: JobStore) -> CollectionStats:
     stats = CollectionStats(new_listings=[])
-    if settings.max_new_jobs_per_run <= 0:
-        LOGGER.info("MAX_NEW_JOBS_PER_RUN is 0; skipping collection")
+    max_new_jobs = settings.max_new_jobs_this_run
+    if max_new_jobs <= 0:
+        LOGGER.info("Max new jobs for this run is 0; skipping collection")
         return stats
 
     seen_this_run: set[tuple[str, str]] = set()
@@ -145,7 +149,14 @@ def _collect_new_listings(settings, finn: FinnClient, store: JobStore) -> Collec
                 ).fetch_linkedin_jobs()
                 stats.linkedin_emails_scanned = email_result.emails_scanned
                 stats.linkedin_jobs_parsed = len(email_result.jobs)
-                _add_new_listings(email_result.jobs, store, seen_this_run, stats, settings.max_new_jobs_per_run)
+                _add_new_listings(
+                    email_result.jobs,
+                    store,
+                    seen_this_run,
+                    stats,
+                    max_new_jobs,
+                    include_existing_unprocessed=settings.initial_backfill,
+                )
             except EmailIngestionNotConfigured as exc:
                 LOGGER.warning("%s", exc)
             except Exception:
@@ -154,14 +165,24 @@ def _collect_new_listings(settings, finn: FinnClient, store: JobStore) -> Collec
         LOGGER.info("Email ingestion disabled")
 
     for search_url in settings.finn_search_urls:
+        if len(stats.new_listings) >= max_new_jobs:
+            LOGGER.info("Reached collection cap before fetching remaining FINN searches")
+            break
         try:
-            listings = finn.fetch_search_results(search_url, settings.finn_max_pages_per_search)
+            listings = finn.fetch_search_results(search_url, settings.finn_pages_this_run)
             stats.finn_jobs_fetched += len(listings)
         except Exception:
             LOGGER.exception("Failed fetching search URL %s", search_url)
             continue
 
-        _add_new_listings(listings, store, seen_this_run, stats, settings.max_new_jobs_per_run)
+        _add_new_listings(
+            listings,
+            store,
+            seen_this_run,
+            stats,
+            max_new_jobs,
+            include_existing_unprocessed=settings.initial_backfill,
+        )
 
     return stats
 
@@ -172,6 +193,7 @@ def _add_new_listings(
     seen_this_run: set[tuple[str, str]],
     stats: CollectionStats,
     max_new_jobs: int,
+    include_existing_unprocessed: bool = False,
 ) -> None:
     for listing in listings:
         if len(stats.new_listings) >= max_new_jobs:
@@ -181,7 +203,7 @@ def _add_new_listings(
             continue
         seen_this_run.add(key)
         inserted = store.upsert_seen(listing)
-        if inserted:
+        if inserted or (include_existing_unprocessed and store.needs_processing(listing.source, listing.job_id)):
             stats.new_listings.append(listing)
 
 
