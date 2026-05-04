@@ -18,6 +18,8 @@ LOGGER = logging.getLogger(__name__)
 class EmailFetchResult:
     emails_scanned: int
     jobs: list[JobListing]
+    emails_archived: int = 0
+    emails_trashed: int = 0
 
 
 class EmailIngestionNotConfigured(RuntimeError):
@@ -36,6 +38,7 @@ class EmailClient:
         subject_filter: str = "job",
         lookback_days: int = 7,
         max_emails_per_run: int = 20,
+        post_process_action: str = "none",
     ) -> None:
         self.host = host
         self.port = port
@@ -46,6 +49,7 @@ class EmailClient:
         self.subject_filter = subject_filter
         self.lookback_days = lookback_days
         self.max_emails_per_run = max_emails_per_run
+        self.post_process_action = _normalize_post_process_action(post_process_action)
 
     def fetch_linkedin_jobs(self) -> EmailFetchResult:
         if not (self.host and self.username and self.password):
@@ -54,12 +58,15 @@ class EmailClient:
             return EmailFetchResult(emails_scanned=0, jobs=[])
 
         emails_scanned = 0
+        emails_archived = 0
+        emails_trashed = 0
         jobs: list[JobListing] = []
 
         try:
             with imaplib.IMAP4_SSL(self.host, self.port) as mailbox:
                 mailbox.login(self.username, self.password)
-                status, _ = mailbox.select(self.folder, readonly=True)
+                readonly = self.post_process_action == "none"
+                status, _ = mailbox.select(self.folder, readonly=readonly)
                 if status != "OK":
                     LOGGER.warning("Could not select email folder %s", self.folder)
                     return EmailFetchResult(emails_scanned=0, jobs=[])
@@ -74,14 +81,36 @@ class EmailClient:
                         continue
                     message = email.message_from_bytes(raw)
                     subject = _decode_mime_header(str(message.get("Subject", "")))
-                    jobs.extend(parse_linkedin_email(message, subject=subject))
+                    parsed_jobs = parse_linkedin_email(message, subject=subject)
+                    jobs.extend(parsed_jobs)
                     emails_scanned += 1
+                    if parsed_jobs:
+                        if self.post_process_action == "archive":
+                            if _archive_message(mailbox, message_id):
+                                emails_archived += 1
+                        elif self.post_process_action == "trash":
+                            if _trash_message(mailbox, message_id):
+                                emails_trashed += 1
+                if emails_trashed:
+                    mailbox.expunge()
         except imaplib.IMAP4.error as exc:
             LOGGER.warning("Email ingestion failed: %s", exc)
         except OSError as exc:
             LOGGER.warning("Email ingestion connection failed: %s", exc)
 
-        return EmailFetchResult(emails_scanned=emails_scanned, jobs=jobs)
+        if emails_archived or emails_trashed:
+            LOGGER.info(
+                "Email post-processing complete. action=%s archived=%s trashed=%s",
+                self.post_process_action,
+                emails_archived,
+                emails_trashed,
+            )
+        return EmailFetchResult(
+            emails_scanned=emails_scanned,
+            jobs=jobs,
+            emails_archived=emails_archived,
+            emails_trashed=emails_trashed,
+        )
 
     def _search(self, mailbox: imaplib.IMAP4_SSL) -> list[bytes]:
         since = datetime.now(timezone.utc) - timedelta(days=self.lookback_days)
@@ -111,3 +140,24 @@ def _decode_mime_header(value: str) -> str:
         return str(make_header(decode_header(value)))
     except Exception:
         return value
+
+
+def _normalize_post_process_action(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"none", "archive", "trash"}:
+        LOGGER.warning("Invalid EMAIL_POST_PROCESS_ACTION=%r. Falling back to none.", value)
+        return "none"
+    return normalized
+
+
+def _archive_message(mailbox: imaplib.IMAP4_SSL, message_id: bytes) -> bool:
+    status, _ = mailbox.store(message_id, "-X-GM-LABELS", r"(\Inbox)")
+    return status == "OK"
+
+
+def _trash_message(mailbox: imaplib.IMAP4_SSL, message_id: bytes) -> bool:
+    status, _ = mailbox.store(message_id, "+X-GM-LABELS", r"(\Trash)")
+    if status == "OK":
+        return True
+    status, _ = mailbox.store(message_id, "+FLAGS", r"(\Deleted)")
+    return status == "OK"

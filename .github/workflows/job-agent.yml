@@ -63,6 +63,7 @@ jobs:
           EMAIL_SUBJECT_FILTER: ${{ vars.EMAIL_SUBJECT_FILTER || '' }}
           EMAIL_LOOKBACK_DAYS: ${{ vars.EMAIL_LOOKBACK_DAYS || '7' }}
           MAX_EMAILS_PER_RUN: ${{ vars.MAX_EMAILS_PER_RUN || '20' }}
+          EMAIL_POST_PROCESS_ACTION: ${{ vars.EMAIL_POST_PROCESS_ACTION || 'none' }}
           LOG_LEVEL: INFO
         run: python -m src.main
 

@@ -79,6 +79,7 @@ class Settings:
     email_subject_filter: str = "job"
     email_lookback_days: int = 7
     max_emails_per_run: int = 20
+    email_post_process_action: str = "none"
 
     def validate_for_run(self) -> None:
         missing: list[str] = []
@@ -148,6 +149,7 @@ def load_settings(env_file: str | Path | None = ".env") -> Settings:
         email_subject_filter=os.getenv("EMAIL_SUBJECT_FILTER", "job").strip(),
         email_lookback_days=_int_env("EMAIL_LOOKBACK_DAYS", 7, minimum=1),
         max_emails_per_run=_int_env("MAX_EMAILS_PER_RUN", 20, minimum=0),
+        email_post_process_action=os.getenv("EMAIL_POST_PROCESS_ACTION", "none").strip().lower() or "none",
     )
 
 

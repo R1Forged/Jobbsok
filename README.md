@@ -92,6 +92,7 @@ Optional LinkedIn email ingestion:
 - `EMAIL_SUBJECT_FILTER`: Subject filter. Default: `job`.
 - `EMAIL_LOOKBACK_DAYS`: Look back this many days. Default: `7`.
 - `MAX_EMAILS_PER_RUN`: Max emails scanned per run. Default: `20`.
+- `EMAIL_POST_PROCESS_ACTION`: What to do after a LinkedIn alert email is parsed. Options: `none`, `archive`, `trash`. Default: `none`.
 
 ## FINN Search URLs
 
@@ -138,7 +139,9 @@ For Gmail:
 3. Use `imap.gmail.com`, port `993`, your email address as `EMAIL_USERNAME`, and the app password as `EMAIL_PASSWORD`.
 4. Use `EMAIL_FROM_FILTER=linkedin` if LinkedIn uses multiple sender addresses.
 
-The email reader opens the mailbox read-only, fetches messages with `BODY.PEEK[]`, and does not mark emails as read, delete them, or move them. Parsed LinkedIn jobs use `source=linkedin_email` and dedupe on the canonical LinkedIn job URL.
+By default, the email reader opens the mailbox read-only, fetches messages with `BODY.PEEK[]`, and does not mark emails as read, delete them, or move them. Parsed LinkedIn jobs use `source=linkedin_email` and dedupe on the canonical LinkedIn job URL.
+
+Set `EMAIL_POST_PROCESS_ACTION=archive` to remove parsed LinkedIn alert emails from the inbox after the jobs have been extracted. Set `EMAIL_POST_PROCESS_ACTION=trash` only if you want those parsed alert emails moved to trash. FINN listings cannot be deleted from FINN; the agent marks them as seen/processed in SQLite instead.
 
 If LinkedIn alerts are forwarded from Outlook/Hotmail into Gmail, set `EMAIL_FROM_FILTER` to the forwarding address and leave `EMAIL_SUBJECT_FILTER` empty. Forwarded subjects may look like `Vs:` or `Fwd:` and do not always contain the word `job`.
 
@@ -190,6 +193,7 @@ Optional repository variables:
 - `EMAIL_SUBJECT_FILTER`
 - `EMAIL_LOOKBACK_DAYS`
 - `MAX_EMAILS_PER_RUN`
+- `EMAIL_POST_PROCESS_ACTION`
 
 The workflow runs at `06:15` and `18:15` UTC and can also be started manually from the Actions tab. The SQLite database is cached between workflow runs using `actions/cache`.
 
@@ -234,4 +238,4 @@ The scorer penalizes low-upside lateral moves, pure operational firefighting, co
 - LinkedIn email jobs come from email content only; no LinkedIn pages are fetched.
 - The run continues on partial failures.
 - Telegram sends are skipped in `DRY_RUN=true`.
-- Logs include FINN jobs fetched, LinkedIn emails scanned, LinkedIn jobs parsed, new jobs after dedup, hardfilter counts, scored jobs, and Telegram alerts.
+- Logs include FINN jobs fetched, LinkedIn emails scanned, LinkedIn jobs parsed, archived/trashed email counts, new jobs after dedup, hardfilter counts, scored jobs, and Telegram alerts.

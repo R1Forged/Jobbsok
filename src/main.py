@@ -27,6 +27,8 @@ class CollectionStats:
     finn_jobs_fetched: int = 0
     linkedin_emails_scanned: int = 0
     linkedin_jobs_parsed: int = 0
+    linkedin_emails_archived: int = 0
+    linkedin_emails_trashed: int = 0
 
 
 def run() -> int:
@@ -64,10 +66,12 @@ def run() -> int:
     new_listings = collection.new_listings
     LOGGER.info(
         "Collection complete. finn_jobs_fetched=%s linkedin_emails_scanned=%s "
-        "linkedin_jobs_parsed=%s new_after_dedup=%s",
+        "linkedin_jobs_parsed=%s linkedin_emails_archived=%s linkedin_emails_trashed=%s new_after_dedup=%s",
         collection.finn_jobs_fetched,
         collection.linkedin_emails_scanned,
         collection.linkedin_jobs_parsed,
+        collection.linkedin_emails_archived,
+        collection.linkedin_emails_trashed,
         len(new_listings),
     )
 
@@ -146,9 +150,12 @@ def _collect_new_listings(settings, finn: FinnClient, store: JobStore) -> Collec
                     subject_filter=settings.email_subject_filter,
                     lookback_days=settings.email_lookback_days,
                     max_emails_per_run=settings.max_emails_per_run,
+                    post_process_action=settings.email_post_process_action,
                 ).fetch_linkedin_jobs()
                 stats.linkedin_emails_scanned = email_result.emails_scanned
                 stats.linkedin_jobs_parsed = len(email_result.jobs)
+                stats.linkedin_emails_archived = email_result.emails_archived
+                stats.linkedin_emails_trashed = email_result.emails_trashed
                 _add_new_listings(
                     email_result.jobs,
                     store,
