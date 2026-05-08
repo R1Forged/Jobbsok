@@ -24,6 +24,8 @@ class JobListing:
     snippet: str
     full_description: str = ""
     source: str = FINN_SOURCE
+    canonical_url: str = ""
+    source_message_id: str = ""
 
     @property
     def combined_text(self) -> str:
@@ -184,6 +186,8 @@ def parse_detail_page(html: str, listing: JobListing) -> JobListing:
         snippet=listing.snippet,
         full_description=description,
         source=listing.source,
+        canonical_url=listing.canonical_url or listing.url,
+        source_message_id=listing.source_message_id,
     )
 
 

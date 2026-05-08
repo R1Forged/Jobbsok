@@ -7,7 +7,7 @@ LinkedIn is not scraped directly. LinkedIn jobs are ingested only from Job Alert
 ## What It Does
 
 - Fetches the first 1-3 pages from saved FINN job-search URLs.
-- Optionally reads LinkedIn Job Alert emails over IMAP without marking them as read.
+- Optionally reads Gmail job-alert emails through the Gmail API.
 - Stores seen jobs in SQLite to avoid duplicate processing and alerts.
 - Fetches FINN detail pages only for new FINN listings.
 - Applies a hard keyword filter before AI scoring.
@@ -25,10 +25,11 @@ LinkedIn is not scraped directly. LinkedIn jobs are ingested only from Job Alert
 ├── .github/workflows/job-agent.yml
 ├── data/.gitkeep
 ├── scripts/telegram_setup.py
+├── scripts/gmail_setup.py
 └── src
     ├── main.py
     ├── fetch_finn.py
-    ├── fetch_email.py
+    ├── fetch_gmail.py
     ├── parse_linkedin_email.py
     ├── parser.py
     ├── filters.py
@@ -56,6 +57,12 @@ For a no-alert test:
 DRY_RUN=true python -m src.main
 ```
 
+To include Gmail job alerts locally:
+
+```bash
+DRY_RUN=true ENABLE_GMAIL=true python src/main.py
+```
+
 ## Environment Variables
 
 Required:
@@ -80,19 +87,14 @@ Optional:
 - `FINN_MAX_PAGES_PER_SEARCH`: First pages to fetch per search, max `3`. Default: `3`.
 - `LOG_LEVEL`: Default: `INFO`.
 
-Optional LinkedIn email ingestion:
+Optional Gmail job-alert ingestion:
 
-- `ENABLE_EMAIL_INGESTION`: `true` to read LinkedIn Job Alert emails. Default: `false`.
-- `EMAIL_HOST`: IMAP host, for example `imap.gmail.com`.
-- `EMAIL_PORT`: IMAP SSL port. Default: `993`.
-- `EMAIL_USERNAME`: Mailbox username. Store as a GitHub secret.
-- `EMAIL_PASSWORD`: Mailbox password or app password. Store as a GitHub secret.
-- `EMAIL_FOLDER`: Mailbox folder. Default: `INBOX`.
-- `EMAIL_FROM_FILTER`: Sender filter. Default: `jobs-noreply@linkedin.com`.
-- `EMAIL_SUBJECT_FILTER`: Subject filter. Default: `job`.
-- `EMAIL_LOOKBACK_DAYS`: Look back this many days. Default: `7`.
-- `MAX_EMAILS_PER_RUN`: Max emails scanned per run. Default: `20`.
-- `EMAIL_POST_PROCESS_ACTION`: What to do after a LinkedIn alert email is parsed. Options: `none`, `archive`, `trash`. Default: `none`.
+- `ENABLE_GMAIL`: `true` to read job-alert emails from Gmail. Default: `false`.
+- `GMAIL_CREDENTIALS_PATH`: OAuth client credentials JSON path. Default: `secrets/gmail_credentials.json`.
+- `GMAIL_TOKEN_PATH`: OAuth user token JSON path. Default: `secrets/gmail_token.json`.
+- `GMAIL_QUERY`: Gmail search query. Default: `in:inbox from:(linkedin.com OR finn.no OR indeed.com) newer_than:14d`.
+- `GMAIL_CLEANUP_ACTION`: Post-processing action for successfully processed alert emails. Options: `none`, `archive`, `trash`. Default: `archive`.
+- `GMAIL_MAX_EMAILS_PER_RUN`: Max Gmail messages scanned per run. Default: `20`.
 
 ## FINN Search URLs
 
@@ -126,24 +128,45 @@ Backfill still stays conservative:
 - It fetches detail pages only for jobs that are unseen or not yet processed.
 - It caps processing at `BACKFILL_MAX_DETAIL_FETCHES`.
 
-## LinkedIn Job Alerts Via Email
+## Gmail Job Alerts
 
-Create LinkedIn Job Alerts in LinkedIn and let the alert emails arrive in a mailbox the agent can read over IMAP. The agent parses job cards/links from email HTML or plaintext and normalizes them into the same pipeline as FINN:
+Create LinkedIn, FINN, Indeed, or similar job alerts and let those emails arrive in Gmail. The agent uses the Gmail API to parse job cards/links from email HTML or plaintext and normalizes them into the same pipeline as FINN:
 
 `fetch -> parse -> dedup -> hardfilter -> AI-score -> Telegram`
 
-For Gmail:
+LinkedIn is not scraped directly. Only LinkedIn alert emails from your Gmail are parsed.
 
-1. Enable 2-step verification on the Google account.
-2. Create a Gmail app password.
-3. Use `imap.gmail.com`, port `993`, your email address as `EMAIL_USERNAME`, and the app password as `EMAIL_PASSWORD`.
-4. Use `EMAIL_FROM_FILTER=linkedin` if LinkedIn uses multiple sender addresses.
+Gmail API setup:
 
-By default, the email reader opens the mailbox read-only, fetches messages with `BODY.PEEK[]`, and does not mark emails as read, delete them, or move them. Parsed LinkedIn jobs use `source=linkedin_email` and dedupe on the canonical LinkedIn job URL.
+1. Create a Google Cloud OAuth desktop/client credential with Gmail API enabled.
+2. Install dependencies with `pip install -r requirements.txt`.
+3. Generate a user OAuth token locally:
 
-Set `EMAIL_POST_PROCESS_ACTION=archive` to remove parsed LinkedIn alert emails from the inbox after the jobs have been extracted. Set `EMAIL_POST_PROCESS_ACTION=trash` only if you want those parsed alert emails moved to trash. FINN listings cannot be deleted from FINN; the agent marks them as seen/processed in SQLite instead.
+```bash
+python scripts/gmail_setup.py
+```
 
-If LinkedIn alerts are forwarded from Outlook/Hotmail into Gmail, set `EMAIL_FROM_FILTER` to the forwarding address and leave `EMAIL_SUBJECT_FILTER` empty. Forwarded subjects may look like `Vs:` or `Fwd:` and do not always contain the word `job`.
+Use this alternative if the machine cannot open a browser automatically:
+
+```bash
+python scripts/gmail_setup.py --no-browser
+```
+
+The script uses the `https://www.googleapis.com/auth/gmail.modify` scope.
+4. Save the OAuth client file as `secrets/gmail_credentials.json`, or point `GMAIL_CREDENTIALS_PATH` elsewhere before running the script.
+5. Keep `secrets/` out of git. It is ignored by `.gitignore`.
+
+Cleanup options:
+
+- `GMAIL_CLEANUP_ACTION=none`: leave processed messages untouched.
+- `GMAIL_CLEANUP_ACTION=archive`: remove the `INBOX` label after every job in the message was scored below `MIN_SCORE`. This is the recommended safe default.
+- `GMAIL_CLEANUP_ACTION=trash`: move below-threshold processed messages to Gmail Trash. Use only when explicitly wanted.
+
+The agent never cleans up unread/unprocessed messages just because they matched the query. A Gmail message is archived or trashed only after it was fetched, job links were extracted, every job has a saved score, every score is below `MIN_SCORE`, and no fatal error happened for that email. If one job in the message meets the alert threshold, the message is marked processed in SQLite but left in the inbox for human follow-up. Messages with parse/scoring errors or pending unscored jobs are also left in Gmail.
+
+`DRY_RUN=true` also leaves Gmail messages untouched. The log records what cleanup action would have happened.
+
+Parsed Gmail sources are stored as `gmail_linkedin`, `gmail_finn`, or `gmail_other` and deduped by canonical URL where possible.
 
 ## Telegram Setup
 
@@ -168,10 +191,10 @@ Required repository secrets:
 - `TELEGRAM_CHAT_ID`
 - `FINN_SEARCH_URLS`
 
-Additional secrets if email ingestion is enabled:
+Additional secrets if Gmail ingestion is enabled:
 
-- `EMAIL_USERNAME`
-- `EMAIL_PASSWORD`
+- `GMAIL_CREDENTIALS_JSON`: contents of `gmail_credentials.json`.
+- `GMAIL_TOKEN_JSON`: contents of `gmail_token.json`.
 
 Optional repository variables:
 
@@ -185,17 +208,35 @@ Optional repository variables:
 - `DRY_RUN`
 - `OPENAI_MODEL`
 - `FINN_MAX_PAGES_PER_SEARCH`
-- `ENABLE_EMAIL_INGESTION`
-- `EMAIL_HOST`
-- `EMAIL_PORT`
-- `EMAIL_FOLDER`
-- `EMAIL_FROM_FILTER`
-- `EMAIL_SUBJECT_FILTER`
-- `EMAIL_LOOKBACK_DAYS`
-- `MAX_EMAILS_PER_RUN`
-- `EMAIL_POST_PROCESS_ACTION`
+- `ENABLE_GMAIL`
+- `GMAIL_CREDENTIALS_PATH`
+- `GMAIL_TOKEN_PATH`
+- `GMAIL_QUERY`
+- `GMAIL_CLEANUP_ACTION`
+- `GMAIL_MAX_EMAILS_PER_RUN`
 
-The workflow runs at `06:15` and `18:15` UTC and can also be started manually from the Actions tab. The SQLite database is cached between workflow runs using `actions/cache`.
+The workflow runs at `06:15` and `18:15` UTC and can also be started manually from the Actions tab. Open GitHub, go to **Actions**, select **Personal Job Search Agent**, click **Run workflow**, and choose the branch. The SQLite database is cached between workflow runs using `actions/cache`.
+
+If `ENABLE_GMAIL=false`, missing Gmail credential/token secrets do not fail the run. If `ENABLE_GMAIL=true` and either OAuth file is missing or invalid, the log explains which path is missing and continues with FINN.
+
+## Debugging GitHub Actions
+
+When a scheduled run fails, open the failed workflow run and expand **Run job agent**. The agent logs:
+
+- current working directory and Python version
+- safe config snapshot with secret presence as booleans only
+- enabled sources: FINN and Gmail
+- FINN listings fetched
+- Gmail emails found, processed, skipped, archived, and trashed
+- jobs scored and Telegram alerts sent
+
+Common fixes:
+
+- Missing required secrets: `OPENAI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, or `FINN_SEARCH_URLS`.
+- Gmail enabled without `GMAIL_CREDENTIALS_JSON` and `GMAIL_TOKEN_JSON`.
+- Bad `TELEGRAM_CHAT_ID`: it must be numeric.
+- Invalid `GMAIL_CLEANUP_ACTION`: use `none`, `archive`, or `trash`.
+- Database cache issues: rerun manually; `data/jobs.sqlite` is recreated if absent.
 
 When `DRY_RUN=true`, the agent uses a separate `*.dry-run.sqlite` database so test runs do not consume jobs from the real alert database.
 
@@ -235,7 +276,7 @@ The scorer penalizes low-upside lateral moves, pure operational firefighting, co
 
 - HTTP requests use retries for transient errors.
 - FINN detail pages are fetched only for new FINN listings.
-- LinkedIn email jobs come from email content only; no LinkedIn pages are fetched.
+- Gmail jobs come from email content only; no LinkedIn pages are fetched.
 - The run continues on partial failures.
 - Telegram sends are skipped in `DRY_RUN=true`.
-- Logs include FINN jobs fetched, LinkedIn emails scanned, LinkedIn jobs parsed, archived/trashed email counts, new jobs after dedup, hardfilter counts, scored jobs, and Telegram alerts.
+- Logs include FINN jobs fetched, Gmail emails found/processed/skipped, Gmail jobs parsed, archived/trashed email counts, new jobs after dedup, hardfilter counts, scored jobs, and Telegram alerts.

@@ -5,6 +5,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -50,6 +51,21 @@ def _csv_env(name: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+def _first_env(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value.strip() != "":
+            return value.strip()
+    return default
+
+
+def _cleanup_action_env(*names: str, default: str = "archive") -> str:
+    value = _first_env(*names, default=default).lower()
+    if value not in {"none", "archive", "trash"}:
+        raise ValueError(f"{names[0]} must be one of: none, archive, trash")
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     openai_api_key: str
@@ -69,17 +85,12 @@ class Settings:
     backfill_max_detail_fetches: int = 100
     http_timeout_seconds: int = 20
     log_level: str = "INFO"
-    enable_email_ingestion: bool = False
-    email_host: str = ""
-    email_port: int = 993
-    email_username: str = ""
-    email_password: str = ""
-    email_folder: str = "INBOX"
-    email_from_filter: str = "jobs-noreply@linkedin.com"
-    email_subject_filter: str = "job"
-    email_lookback_days: int = 7
-    max_emails_per_run: int = 20
-    email_post_process_action: str = "none"
+    enable_gmail: bool = False
+    gmail_credentials_path: Path = Path("secrets/gmail_credentials.json")
+    gmail_token_path: Path = Path("secrets/gmail_token.json")
+    gmail_query: str = "in:inbox from:(linkedin.com OR finn.no OR indeed.com) newer_than:14d"
+    gmail_cleanup_action: str = "archive"
+    gmail_max_emails_per_run: int = 20
 
     def validate_for_run(self) -> None:
         missing: list[str] = []
@@ -101,10 +112,6 @@ class Settings:
             )
 
     @property
-    def email_configured(self) -> bool:
-        return bool(self.email_host and self.email_username and self.email_password)
-
-    @property
     def finn_pages_this_run(self) -> int:
         return self.backfill_max_pages if self.initial_backfill else self.finn_max_pages_per_search
 
@@ -115,6 +122,26 @@ class Settings:
     @property
     def max_detail_fetches_this_run(self) -> int:
         return self.backfill_max_detail_fetches if self.initial_backfill else self.max_detail_fetches_per_run
+
+    def safe_config_snapshot(self) -> dict[str, Any]:
+        return {
+            "OPENAI_API_KEY": bool(self.openai_api_key),
+            "TELEGRAM_BOT_TOKEN": bool(self.telegram_bot_token),
+            "TELEGRAM_CHAT_ID": bool(self.telegram_chat_id),
+            "FINN_SEARCH_URLS_count": len(self.finn_search_urls),
+            "MIN_SCORE": self.min_score,
+            "DB_PATH": str(self.db_path),
+            "DRY_RUN": self.dry_run,
+            "OPENAI_MODEL": self.openai_model,
+            "ENABLE_GMAIL": self.enable_gmail,
+            "GMAIL_CREDENTIALS_PATH": str(self.gmail_credentials_path),
+            "GMAIL_CREDENTIALS_PATH_exists": self.gmail_credentials_path.exists(),
+            "GMAIL_TOKEN_PATH": str(self.gmail_token_path),
+            "GMAIL_TOKEN_PATH_exists": self.gmail_token_path.exists(),
+            "GMAIL_QUERY_set": bool(self.gmail_query),
+            "GMAIL_CLEANUP_ACTION": self.gmail_cleanup_action,
+            "GMAIL_MAX_EMAILS_PER_RUN": self.gmail_max_emails_per_run,
+        }
 
 
 def load_settings(env_file: str | Path | None = ".env") -> Settings:
@@ -139,17 +166,26 @@ def load_settings(env_file: str | Path | None = ".env") -> Settings:
         backfill_max_detail_fetches=_int_env("BACKFILL_MAX_DETAIL_FETCHES", 100, minimum=0),
         http_timeout_seconds=_int_env("HTTP_TIMEOUT_SECONDS", 20, minimum=5),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
-        enable_email_ingestion=_truthy(os.getenv("ENABLE_EMAIL_INGESTION"), default=False),
-        email_host=os.getenv("EMAIL_HOST", "").strip(),
-        email_port=_int_env("EMAIL_PORT", 993, minimum=1),
-        email_username=os.getenv("EMAIL_USERNAME", "").strip(),
-        email_password=os.getenv("EMAIL_PASSWORD", "").strip(),
-        email_folder=os.getenv("EMAIL_FOLDER", "INBOX").strip() or "INBOX",
-        email_from_filter=os.getenv("EMAIL_FROM_FILTER", "jobs-noreply@linkedin.com").strip(),
-        email_subject_filter=os.getenv("EMAIL_SUBJECT_FILTER", "job").strip(),
-        email_lookback_days=_int_env("EMAIL_LOOKBACK_DAYS", 7, minimum=1),
-        max_emails_per_run=_int_env("MAX_EMAILS_PER_RUN", 20, minimum=0),
-        email_post_process_action=os.getenv("EMAIL_POST_PROCESS_ACTION", "none").strip().lower() or "none",
+        enable_gmail=_truthy(
+            _first_env("ENABLE_GMAIL", "ENABLE_EMAIL_INGESTION", default="false"),
+            default=False,
+        ),
+        gmail_credentials_path=Path(_first_env("GMAIL_CREDENTIALS_PATH", default="secrets/gmail_credentials.json")),
+        gmail_token_path=Path(_first_env("GMAIL_TOKEN_PATH", default="secrets/gmail_token.json")),
+        gmail_query=_first_env(
+            "GMAIL_QUERY",
+            default="in:inbox from:(linkedin.com OR finn.no OR indeed.com) newer_than:14d",
+        ),
+        gmail_cleanup_action=_cleanup_action_env(
+            "GMAIL_CLEANUP_ACTION",
+            "EMAIL_POST_PROCESS_ACTION",
+            default="archive",
+        ),
+        gmail_max_emails_per_run=_int_env(
+            "GMAIL_MAX_EMAILS_PER_RUN",
+            _int_env("MAX_EMAILS_PER_RUN", 20, minimum=0),
+            minimum=0,
+        ),
     )
 
 

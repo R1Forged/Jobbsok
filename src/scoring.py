@@ -61,6 +61,7 @@ class ScoreResult:
     salary_potential: str
     application_angle: str
     confidence: str
+    raw_ai_json: str = ""
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "ScoreResult":
@@ -87,6 +88,7 @@ class ScoreResult:
             salary_potential=str(payload.get("salary_potential", "")).strip(),
             application_angle=str(payload.get("application_angle", "")).strip(),
             confidence=confidence,
+            raw_ai_json=json.dumps(payload, ensure_ascii=False, sort_keys=True),
         )
 
 

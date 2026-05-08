@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 from .parser import JobListing, clean_text
 
 
-LINKEDIN_EMAIL_SOURCE = "linkedin_email"
+LINKEDIN_EMAIL_SOURCE = "gmail_linkedin"
 
 
 def parse_linkedin_email(message: Message, subject: str = "") -> list[JobListing]:
@@ -111,6 +111,7 @@ def _parse_html(html: str, subject: str) -> list[JobListing]:
                 snippet=snippet,
                 full_description=snippet,
                 source=LINKEDIN_EMAIL_SOURCE,
+                canonical_url=url,
             )
         )
         seen.add(job_id)
@@ -145,6 +146,7 @@ def _parse_plaintext(text: str, subject: str) -> list[JobListing]:
                 snippet=snippet,
                 full_description=snippet,
                 source=LINKEDIN_EMAIL_SOURCE,
+                canonical_url=url,
             )
         )
         seen.add(job_id)

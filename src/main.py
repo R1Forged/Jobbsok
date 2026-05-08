@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import platform
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,8 +11,8 @@ if __package__ in {None, ""}:
 
 from src.config import configure_logging, load_settings
 from src.db import JobStore
-from src.fetch_email import EmailClient, EmailIngestionNotConfigured
 from src.fetch_finn import FinnClient
+from src.fetch_gmail import GmailClient, GmailEmail, GmailIngestionNotConfigured
 from src.filters import hard_filter
 from src.parser import JobListing
 from src.scoring import JobScorer, ScoringUnavailable
@@ -25,16 +26,26 @@ LOGGER = logging.getLogger(__name__)
 class CollectionStats:
     new_listings: list[JobListing]
     finn_jobs_fetched: int = 0
-    linkedin_emails_scanned: int = 0
-    linkedin_jobs_parsed: int = 0
-    linkedin_emails_archived: int = 0
-    linkedin_emails_trashed: int = 0
+    gmail_emails_found: int = 0
+    gmail_emails_processed: int = 0
+    gmail_jobs_parsed: int = 0
+    gmail_emails_skipped_error: int = 0
+    gmail_emails: list[GmailEmail] | None = None
 
 
 def run() -> int:
     settings = load_settings()
     configure_logging(settings.log_level)
     settings.validate_for_run()
+    LOGGER.info("Current working directory: %s", Path.cwd())
+    LOGGER.info("Python version: %s", sys.version.replace("\n", " "))
+    LOGGER.info("Platform: %s", platform.platform())
+    LOGGER.info("Loaded config keys: %s", settings.safe_config_snapshot())
+    LOGGER.info(
+        "Enabled sources: FINN=%s Gmail=%s",
+        bool(settings.finn_search_urls),
+        settings.enable_gmail,
+    )
 
     db_path = settings.db_path
     if settings.dry_run:
@@ -65,13 +76,13 @@ def run() -> int:
     collection = _collect_new_listings(settings, finn, store)
     new_listings = collection.new_listings
     LOGGER.info(
-        "Collection complete. finn_jobs_fetched=%s linkedin_emails_scanned=%s "
-        "linkedin_jobs_parsed=%s linkedin_emails_archived=%s linkedin_emails_trashed=%s new_after_dedup=%s",
+        "Collection complete. finn_jobs_fetched=%s gmail_emails_found=%s "
+        "gmail_emails_processed=%s gmail_jobs_parsed=%s gmail_emails_skipped_error=%s new_after_dedup=%s",
         collection.finn_jobs_fetched,
-        collection.linkedin_emails_scanned,
-        collection.linkedin_jobs_parsed,
-        collection.linkedin_emails_archived,
-        collection.linkedin_emails_trashed,
+        collection.gmail_emails_found,
+        collection.gmail_emails_processed,
+        collection.gmail_jobs_parsed,
+        collection.gmail_emails_skipped_error,
         len(new_listings),
     )
 
@@ -79,6 +90,8 @@ def run() -> int:
     alerted = 0
     hard_filtered = 0
     passed_hard_filter = 0
+    fatal_email_ids: set[str] = set()
+    scoring_unavailable = False
     for listing in new_listings[: settings.max_detail_fetches_this_run]:
         try:
             if listing.source == "finn":
@@ -100,8 +113,17 @@ def run() -> int:
                 score = scorer.score(detailed)
             except ScoringUnavailable as exc:
                 LOGGER.error("%s", exc)
+                if detailed.source_message_id:
+                    fatal_email_ids.add(detailed.source_message_id)
+                scoring_unavailable = True
                 break
-            store.save_score(detailed.source, detailed.job_id, score.score, score.recommendation)
+            store.save_score(
+                detailed.source,
+                detailed.job_id,
+                score.score,
+                score.recommendation,
+                score.raw_ai_json,
+            )
             processed += 1
 
             if score.score < settings.min_score:
@@ -114,14 +136,28 @@ def run() -> int:
                 alerted += 1
         except Exception:
             LOGGER.exception("Failed processing listing %s", listing.url)
+            if listing.source_message_id:
+                fatal_email_ids.add(listing.source_message_id)
             continue
 
+    cleanup_counts = _cleanup_processed_gmail_emails(
+        settings=settings,
+        store=store,
+        gmail_emails=collection.gmail_emails or [],
+        fatal_email_ids=fatal_email_ids,
+        scoring_unavailable=scoring_unavailable,
+    )
     LOGGER.info(
-        "Run complete. hard_filtered=%s passed_hard_filter=%s scored=%s alerted=%s",
+        "Run complete. hard_filtered=%s passed_hard_filter=%s scored=%s alerted=%s "
+        "gmail_emails_archived=%s gmail_emails_trashed=%s gmail_emails_left=%s gmail_emails_skipped_error=%s",
         hard_filtered,
         passed_hard_filter,
         processed,
         alerted,
+        cleanup_counts["archived"],
+        cleanup_counts["trashed"],
+        cleanup_counts["left"],
+        cleanup_counts["skipped_error"],
     )
     return 0
 
@@ -135,41 +171,49 @@ def _collect_new_listings(settings, finn: FinnClient, store: JobStore) -> Collec
 
     seen_this_run: set[tuple[str, str]] = set()
 
-    if settings.enable_email_ingestion:
-        if not settings.email_configured:
-            LOGGER.warning("Email ingestion enabled but email settings are incomplete; skipping email source")
-        else:
-            try:
-                email_result = EmailClient(
-                    host=settings.email_host,
-                    port=settings.email_port,
-                    username=settings.email_username,
-                    password=settings.email_password,
-                    folder=settings.email_folder,
-                    from_filter=settings.email_from_filter,
-                    subject_filter=settings.email_subject_filter,
-                    lookback_days=settings.email_lookback_days,
-                    max_emails_per_run=settings.max_emails_per_run,
-                    post_process_action=settings.email_post_process_action,
-                ).fetch_linkedin_jobs()
-                stats.linkedin_emails_scanned = email_result.emails_scanned
-                stats.linkedin_jobs_parsed = len(email_result.jobs)
-                stats.linkedin_emails_archived = email_result.emails_archived
-                stats.linkedin_emails_trashed = email_result.emails_trashed
+    if settings.enable_gmail:
+        try:
+            gmail_result = GmailClient(
+                credentials_path=settings.gmail_credentials_path,
+                token_path=settings.gmail_token_path,
+                query=settings.gmail_query,
+                max_emails_per_run=settings.gmail_max_emails_per_run,
+            ).fetch_job_alerts()
+            stats.gmail_emails_found = gmail_result.emails_found
+            stats.gmail_emails_processed = gmail_result.emails_processed
+            stats.gmail_jobs_parsed = len(gmail_result.jobs)
+            stats.gmail_emails_skipped_error = gmail_result.emails_skipped_error
+            stats.gmail_emails = []
+            for email_record in gmail_result.emails:
+                if email_record.error_message:
+                    store.record_processed_email(
+                        email_record.message_id,
+                        email_record.source,
+                        email_record.subject,
+                        email_record.from_email,
+                        settings.gmail_cleanup_action,
+                        "error",
+                        email_record.error_message,
+                    )
+                    continue
+                if store.email_already_processed(email_record.message_id):
+                    LOGGER.info("Skipping already processed Gmail message_id=%s", email_record.message_id)
+                    continue
+                stats.gmail_emails.append(email_record)
                 _add_new_listings(
-                    email_result.jobs,
+                    email_record.jobs,
                     store,
                     seen_this_run,
                     stats,
                     max_new_jobs,
                     include_existing_unprocessed=settings.initial_backfill,
                 )
-            except EmailIngestionNotConfigured as exc:
-                LOGGER.warning("%s", exc)
-            except Exception:
-                LOGGER.exception("Unexpected email ingestion failure")
+        except GmailIngestionNotConfigured as exc:
+            LOGGER.warning("%s Gmail source skipped; FINN source will continue.", exc)
+        except Exception:
+            LOGGER.exception("Unexpected Gmail ingestion failure")
     else:
-        LOGGER.info("Email ingestion disabled")
+        LOGGER.info("Gmail ingestion disabled")
 
     for search_url in settings.finn_search_urls:
         if len(stats.new_listings) >= max_new_jobs:
@@ -194,6 +238,134 @@ def _collect_new_listings(settings, finn: FinnClient, store: JobStore) -> Collec
     return stats
 
 
+def _cleanup_processed_gmail_emails(
+    settings,
+    store: JobStore,
+    gmail_emails: list[GmailEmail],
+    fatal_email_ids: set[str],
+    scoring_unavailable: bool,
+) -> dict[str, int]:
+    counts = {"archived": 0, "trashed": 0, "left": 0, "skipped_error": 0}
+    if not settings.enable_gmail or not gmail_emails:
+        return counts
+    gmail = GmailClient(
+        credentials_path=settings.gmail_credentials_path,
+        token_path=settings.gmail_token_path,
+        query=settings.gmail_query,
+        max_emails_per_run=settings.gmail_max_emails_per_run,
+    )
+    action = settings.gmail_cleanup_action
+    for email_record in gmail_emails:
+        if store.email_already_processed(email_record.message_id):
+            continue
+        if email_record.error_message:
+            counts["skipped_error"] += 1
+            continue
+        if not email_record.jobs:
+            counts["left"] += 1
+            store.record_processed_email(
+                email_record.message_id,
+                email_record.source,
+                email_record.subject,
+                email_record.from_email,
+                "none",
+                "skipped",
+                "No job links extracted; message left untouched.",
+            )
+            continue
+        if scoring_unavailable or email_record.message_id in fatal_email_ids:
+            counts["skipped_error"] += 1
+            store.record_processed_email(
+                email_record.message_id,
+                email_record.source,
+                email_record.subject,
+                email_record.from_email,
+                "none",
+                "error",
+                "Job processing failed; message left untouched.",
+            )
+            continue
+        job_statuses = [
+            (job, store.job_application_status(job, settings.min_score))
+            for job in email_record.jobs
+        ]
+        pending_jobs = [job for job, status in job_statuses if status == "pending"]
+        if pending_jobs:
+            counts["left"] += 1
+            store.record_processed_email(
+                email_record.message_id,
+                email_record.source,
+                email_record.subject,
+                email_record.from_email,
+                "none",
+                "skipped",
+                f"{len(pending_jobs)} Gmail job(s) were not fully scored yet; message left untouched.",
+            )
+            continue
+        interesting_jobs = [job for job, status in job_statuses if status == "interesting"]
+        if interesting_jobs:
+            counts["left"] += 1
+            store.record_processed_email(
+                email_record.message_id,
+                email_record.source,
+                email_record.subject,
+                email_record.from_email,
+                "none",
+                "processed",
+                f"{len(interesting_jobs)} Gmail job(s) met the alert threshold; message left in inbox.",
+            )
+            continue
+        if settings.dry_run:
+            counts["left"] += 1
+            store.record_processed_email(
+                email_record.message_id,
+                email_record.source,
+                email_record.subject,
+                email_record.from_email,
+                "none",
+                "processed",
+                f"DRY_RUN=true; all Gmail jobs were below threshold; would have applied cleanup action {action}.",
+            )
+            LOGGER.info(
+                "DRY_RUN=true. Gmail message_id=%s left untouched; all jobs below threshold; would have applied cleanup action=%s",
+                email_record.message_id,
+                action,
+            )
+            continue
+        try:
+            if gmail.cleanup_message(email_record.message_id, action):
+                if action == "trash":
+                    counts["trashed"] += 1
+                elif action == "archive":
+                    counts["archived"] += 1
+                else:
+                    counts["left"] += 1
+                store.record_processed_email(
+                    email_record.message_id,
+                    email_record.source,
+                    email_record.subject,
+                    email_record.from_email,
+                    action,
+                    "processed",
+                )
+        except GmailIngestionNotConfigured as exc:
+            LOGGER.warning("%s Gmail cleanup skipped.", exc)
+            counts["skipped_error"] += 1
+        except Exception as exc:
+            LOGGER.exception("Gmail cleanup failed for message_id=%s", email_record.message_id)
+            counts["skipped_error"] += 1
+            store.record_processed_email(
+                email_record.message_id,
+                email_record.source,
+                email_record.subject,
+                email_record.from_email,
+                "none",
+                "error",
+                str(exc),
+            )
+    return counts
+
+
 def _add_new_listings(
     listings: list[JobListing],
     store: JobStore,
@@ -210,7 +382,7 @@ def _add_new_listings(
             continue
         seen_this_run.add(key)
         inserted = store.upsert_seen(listing)
-        if inserted or (include_existing_unprocessed and store.needs_processing(listing.source, listing.job_id)):
+        if inserted or store.needs_processing(listing.source, listing.job_id):
             stats.new_listings.append(listing)
 
 
