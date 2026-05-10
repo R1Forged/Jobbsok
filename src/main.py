@@ -209,6 +209,8 @@ def _collect_new_listings(settings, finn: FinnClient, store: JobStore) -> Collec
                     include_existing_unprocessed=settings.initial_backfill,
                 )
         except GmailIngestionNotConfigured as exc:
+            if settings.require_gmail:
+                raise RuntimeError(f"{exc} Gmail source is required for this run.") from exc
             LOGGER.warning("%s Gmail source skipped; FINN source will continue.", exc)
         except Exception:
             LOGGER.exception("Unexpected Gmail ingestion failure")

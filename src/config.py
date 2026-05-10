@@ -86,6 +86,7 @@ class Settings:
     http_timeout_seconds: int = 20
     log_level: str = "INFO"
     enable_gmail: bool = False
+    require_gmail: bool = False
     gmail_credentials_path: Path = Path("secrets/gmail_credentials.json")
     gmail_token_path: Path = Path("secrets/gmail_token.json")
     gmail_query: str = "in:inbox from:(linkedin.com OR finn.no OR indeed.com) newer_than:14d"
@@ -110,6 +111,8 @@ class Settings:
                 "TELEGRAM_CHAT_ID must be the numeric chat id from Telegram getUpdates, "
                 "not a t.me link, bot username, or @handle. Run: python scripts/telegram_setup.py"
             )
+        if self.require_gmail and not self.enable_gmail:
+            raise RuntimeError("REQUIRE_GMAIL=true but ENABLE_GMAIL is not true")
 
     @property
     def finn_pages_this_run(self) -> int:
@@ -134,6 +137,7 @@ class Settings:
             "DRY_RUN": self.dry_run,
             "OPENAI_MODEL": self.openai_model,
             "ENABLE_GMAIL": self.enable_gmail,
+            "REQUIRE_GMAIL": self.require_gmail,
             "GMAIL_CREDENTIALS_PATH": str(self.gmail_credentials_path),
             "GMAIL_CREDENTIALS_PATH_exists": self.gmail_credentials_path.exists(),
             "GMAIL_TOKEN_PATH": str(self.gmail_token_path),
@@ -170,6 +174,7 @@ def load_settings(env_file: str | Path | None = ".env") -> Settings:
             _first_env("ENABLE_GMAIL", "ENABLE_EMAIL_INGESTION", default="false"),
             default=False,
         ),
+        require_gmail=_truthy(os.getenv("REQUIRE_GMAIL"), default=False),
         gmail_credentials_path=Path(_first_env("GMAIL_CREDENTIALS_PATH", default="secrets/gmail_credentials.json")),
         gmail_token_path=Path(_first_env("GMAIL_TOKEN_PATH", default="secrets/gmail_token.json")),
         gmail_query=_first_env(

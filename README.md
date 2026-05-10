@@ -90,6 +90,7 @@ Optional:
 Optional Gmail job-alert ingestion:
 
 - `ENABLE_GMAIL`: `true` to read job-alert emails from Gmail. Default: `false`.
+- `REQUIRE_GMAIL`: `true` to fail the run if Gmail is enabled but OAuth credentials/token are missing or invalid. Default: `false`.
 - `GMAIL_CREDENTIALS_PATH`: OAuth client credentials JSON path. Default: `secrets/gmail_credentials.json`.
 - `GMAIL_TOKEN_PATH`: OAuth user token JSON path. Default: `secrets/gmail_token.json`.
 - `GMAIL_QUERY`: Gmail search query. Default: `in:inbox from:(linkedin.com OR finn.no OR indeed.com) newer_than:14d`.
@@ -209,15 +210,16 @@ Optional repository variables:
 - `OPENAI_MODEL`
 - `FINN_MAX_PAGES_PER_SEARCH`
 - `ENABLE_GMAIL`
+- `REQUIRE_GMAIL`
 - `GMAIL_CREDENTIALS_PATH`
 - `GMAIL_TOKEN_PATH`
 - `GMAIL_QUERY`
 - `GMAIL_CLEANUP_ACTION`
 - `GMAIL_MAX_EMAILS_PER_RUN`
 
-The workflow runs at `06:15` and `18:15` UTC and can also be started manually from the Actions tab. Open GitHub, go to **Actions**, select **Personal Job Search Agent**, click **Run workflow**, and choose the branch. The SQLite database is cached between workflow runs using `actions/cache`.
+The workflow runs at `06:15` and `18:15` UTC and can also be started manually from the Actions tab. Open GitHub, go to **Actions**, select **Personal Job Search Agent**, click **Run workflow**, and choose the branch. The scheduled workflow pins production-safe Gmail cleanup settings: `DRY_RUN=false`, `ENABLE_GMAIL=true`, `REQUIRE_GMAIL=true`, `GMAIL_CLEANUP_ACTION=archive`, and a focused `in:inbox` Gmail query for forwarded LinkedIn alerts. The SQLite database is cached between workflow runs using `actions/cache`.
 
-If `ENABLE_GMAIL=false`, missing Gmail credential/token secrets do not fail the run. If `ENABLE_GMAIL=true` and either OAuth file is missing or invalid, the log explains which path is missing and continues with FINN.
+If `ENABLE_GMAIL=false`, missing Gmail credential/token secrets do not fail the run. If `REQUIRE_GMAIL=true` and either OAuth file is missing or invalid, the workflow fails clearly instead of silently skipping Gmail cleanup.
 
 ## Debugging GitHub Actions
 
@@ -233,7 +235,7 @@ When a scheduled run fails, open the failed workflow run and expand **Run job ag
 Common fixes:
 
 - Missing required secrets: `OPENAI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, or `FINN_SEARCH_URLS`.
-- Gmail enabled without `GMAIL_CREDENTIALS_JSON` and `GMAIL_TOKEN_JSON`.
+- Gmail required without `GMAIL_CREDENTIALS_JSON` and `GMAIL_TOKEN_JSON`.
 - Bad `TELEGRAM_CHAT_ID`: it must be numeric.
 - Invalid `GMAIL_CLEANUP_ACTION`: use `none`, `archive`, or `trash`.
 - Database cache issues: rerun manually; `data/jobs.sqlite` is recreated if absent.

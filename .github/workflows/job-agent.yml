@@ -63,16 +63,17 @@ jobs:
           INITIAL_BACKFILL: ${{ vars.INITIAL_BACKFILL || 'false' }}
           BACKFILL_MAX_PAGES: ${{ vars.BACKFILL_MAX_PAGES || '5' }}
           BACKFILL_MAX_DETAIL_FETCHES: ${{ vars.BACKFILL_MAX_DETAIL_FETCHES || '100' }}
-          DRY_RUN: ${{ vars.DRY_RUN || 'false' }}
+          DRY_RUN: false
           DB_PATH: data/jobs.sqlite
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-4.1-mini' }}
           FINN_MAX_PAGES_PER_SEARCH: ${{ vars.FINN_MAX_PAGES_PER_SEARCH || '3' }}
-          ENABLE_GMAIL: ${{ vars.ENABLE_GMAIL || 'false' }}
+          ENABLE_GMAIL: true
+          REQUIRE_GMAIL: true
           GMAIL_CREDENTIALS_PATH: ${{ vars.GMAIL_CREDENTIALS_PATH || 'secrets/gmail_credentials.json' }}
           GMAIL_TOKEN_PATH: ${{ vars.GMAIL_TOKEN_PATH || 'secrets/gmail_token.json' }}
-          GMAIL_QUERY: ${{ vars.GMAIL_QUERY || 'in:inbox newer_than:30d ((from:simen_fricker@hotmail.com subject:FW) OR from:finn.no OR from:indeed.com)' }}
-          GMAIL_CLEANUP_ACTION: ${{ vars.GMAIL_CLEANUP_ACTION || 'archive' }}
-          GMAIL_MAX_EMAILS_PER_RUN: ${{ vars.GMAIL_MAX_EMAILS_PER_RUN || '20' }}
+          GMAIL_QUERY: 'in:inbox ((from:simen_fricker@hotmail.com linkedin) OR from:indeed.com OR (from:finn.no jobb))'
+          GMAIL_CLEANUP_ACTION: archive
+          GMAIL_MAX_EMAILS_PER_RUN: ${{ vars.GMAIL_MAX_EMAILS_PER_RUN || '50' }}
           LOG_LEVEL: INFO
         run: python -m src.main
 
