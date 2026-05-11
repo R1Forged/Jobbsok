@@ -58,8 +58,8 @@ jobs:
           FINN_SEARCH_URLS: ${{ secrets.FINN_SEARCH_URLS }}
           MIN_SCORE: ${{ vars.MIN_SCORE || '75' }}
           REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || '3' }}
-          MAX_DETAIL_FETCHES_PER_RUN: ${{ vars.MAX_DETAIL_FETCHES_PER_RUN || '20' }}
-          MAX_NEW_JOBS_PER_RUN: ${{ vars.MAX_NEW_JOBS_PER_RUN || '20' }}
+          MAX_DETAIL_FETCHES_PER_RUN: 100
+          MAX_NEW_JOBS_PER_RUN: 100
           INITIAL_BACKFILL: ${{ vars.INITIAL_BACKFILL || 'false' }}
           BACKFILL_MAX_PAGES: ${{ vars.BACKFILL_MAX_PAGES || '5' }}
           BACKFILL_MAX_DETAIL_FETCHES: ${{ vars.BACKFILL_MAX_DETAIL_FETCHES || '100' }}

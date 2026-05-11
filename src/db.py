@@ -151,9 +151,9 @@ class JobStore:
             ).fetchone()
             if row is None or row["score"] is None:
                 return "pending"
-            if row["alerted"] or row["score"] >= min_score:
-                return "interesting"
-            return "uninteresting"
+            if row["score"] >= min_score and not row["alerted"]:
+                return "needs_alert"
+            return "ready_to_archive"
 
     def upsert_seen(self, listing: JobListing) -> bool:
         """Insert a listing if new, otherwise refresh last_seen. Returns True when inserted."""

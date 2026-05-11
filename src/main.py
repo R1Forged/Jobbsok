@@ -304,8 +304,8 @@ def _cleanup_processed_gmail_emails(
                 f"{len(pending_jobs)} Gmail job(s) were not fully scored yet; message left untouched.",
             )
             continue
-        interesting_jobs = [job for job, status in job_statuses if status == "interesting"]
-        if interesting_jobs:
+        unalerted_interesting_jobs = [job for job, status in job_statuses if status == "needs_alert"]
+        if unalerted_interesting_jobs:
             counts["left"] += 1
             store.record_processed_email(
                 email_record.message_id,
@@ -314,7 +314,7 @@ def _cleanup_processed_gmail_emails(
                 email_record.from_email,
                 "none",
                 "processed",
-                f"{len(interesting_jobs)} Gmail job(s) met the alert threshold; message left in inbox.",
+                f"{len(unalerted_interesting_jobs)} Gmail job(s) met the alert threshold but were not alerted; message left in inbox.",
             )
             continue
         if settings.dry_run:
@@ -326,10 +326,10 @@ def _cleanup_processed_gmail_emails(
                 email_record.from_email,
                 "none",
                 "processed",
-                f"DRY_RUN=true; all Gmail jobs were below threshold; would have applied cleanup action {action}.",
+                f"DRY_RUN=true; all Gmail jobs were below threshold or alerted; would have applied cleanup action {action}.",
             )
             LOGGER.info(
-                "DRY_RUN=true. Gmail message_id=%s left untouched; all jobs below threshold; would have applied cleanup action=%s",
+                "DRY_RUN=true. Gmail message_id=%s left untouched; all jobs below threshold or alerted; would have applied cleanup action=%s",
                 email_record.message_id,
                 action,
             )

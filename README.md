@@ -160,10 +160,10 @@ The script uses the `https://www.googleapis.com/auth/gmail.modify` scope.
 Cleanup options:
 
 - `GMAIL_CLEANUP_ACTION=none`: leave processed messages untouched.
-- `GMAIL_CLEANUP_ACTION=archive`: remove the `INBOX` label after every job in the message was scored below `MIN_SCORE`. This is the recommended safe default.
-- `GMAIL_CLEANUP_ACTION=trash`: move below-threshold processed messages to Gmail Trash. Use only when explicitly wanted.
+- `GMAIL_CLEANUP_ACTION=archive`: remove the `INBOX` label after every job in the message was either scored below `MIN_SCORE` or already sent to Telegram. This is the recommended safe default.
+- `GMAIL_CLEANUP_ACTION=trash`: move fully handled processed messages to Gmail Trash. Use only when explicitly wanted.
 
-The agent never cleans up unread/unprocessed messages just because they matched the query. A Gmail message is archived or trashed only after it was fetched, job links were extracted, every job has a saved score, every score is below `MIN_SCORE`, and no fatal error happened for that email. If one job in the message meets the alert threshold, the message is marked processed in SQLite but left in the inbox for human follow-up. Messages with parse/scoring errors or pending unscored jobs are also left in Gmail.
+The agent never cleans up unread/unprocessed messages just because they matched the query. A Gmail message is archived or trashed only after it was fetched, job links were extracted, every job has a saved score, and every interesting job was successfully sent to Telegram. Messages with parse/scoring errors, pending unscored jobs, or an above-threshold job that was not alerted are left in Gmail.
 
 `DRY_RUN=true` also leaves Gmail messages untouched. The log records what cleanup action would have happened.
 
@@ -217,7 +217,7 @@ Optional repository variables:
 - `GMAIL_CLEANUP_ACTION`
 - `GMAIL_MAX_EMAILS_PER_RUN`
 
-The workflow runs at `06:15` and `18:15` UTC and can also be started manually from the Actions tab. Open GitHub, go to **Actions**, select **Personal Job Search Agent**, click **Run workflow**, and choose the branch. The scheduled workflow pins production-safe Gmail cleanup settings: `DRY_RUN=false`, `ENABLE_GMAIL=true`, `REQUIRE_GMAIL=true`, `GMAIL_CLEANUP_ACTION=archive`, and a focused `in:inbox` Gmail query for forwarded LinkedIn alerts. The SQLite database is cached between workflow runs using `actions/cache`.
+The workflow runs at `06:15` and `18:15` UTC and can also be started manually from the Actions tab. Open GitHub, go to **Actions**, select **Personal Job Search Agent**, click **Run workflow**, and choose the branch. The scheduled workflow pins production-safe Gmail cleanup settings: `DRY_RUN=false`, `ENABLE_GMAIL=true`, `REQUIRE_GMAIL=true`, `GMAIL_CLEANUP_ACTION=archive`, `MAX_NEW_JOBS_PER_RUN=100`, `MAX_DETAIL_FETCHES_PER_RUN=100`, and a focused `in:inbox` Gmail query for forwarded LinkedIn alerts. The SQLite database is cached between workflow runs using `actions/cache`.
 
 If `ENABLE_GMAIL=false`, missing Gmail credential/token secrets do not fail the run. If `REQUIRE_GMAIL=true` and either OAuth file is missing or invalid, the workflow fails clearly instead of silently skipping Gmail cleanup.
 
