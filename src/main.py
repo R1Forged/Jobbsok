@@ -196,9 +196,6 @@ def _collect_new_listings(settings, finn: FinnClient, store: JobStore) -> Collec
                         email_record.error_message,
                     )
                     continue
-                if store.email_already_processed(email_record.message_id):
-                    LOGGER.info("Skipping already processed Gmail message_id=%s", email_record.message_id)
-                    continue
                 stats.gmail_emails.append(email_record)
                 _add_new_listings(
                     email_record.jobs,
@@ -258,8 +255,6 @@ def _cleanup_processed_gmail_emails(
     )
     action = settings.gmail_cleanup_action
     for email_record in gmail_emails:
-        if store.email_already_processed(email_record.message_id):
-            continue
         if email_record.error_message:
             counts["skipped_error"] += 1
             continue
